@@ -5,7 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Dashboard Métricas AyA – Orbe</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -181,18 +183,16 @@
       .chart-wrap.h340 { height: 215px; }
     }
 
-    /* ── PRINT / PDF ────────────────────────────────── */
-    @media print {
-      body { background: #fff !important; color: #000 !important; }
-      header { background: #1e3a5f !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .btn-export, .no-print { display: none !important; }
-      main { padding: 10px !important; gap: 12px !important; }
-      .card { background: #fff !important; border: 1px solid #ddd !important; box-shadow: none !important; break-inside: avoid; }
-      .kpi-card { background: #fff !important; border: 1px solid #ddd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .row-2, .row-3 { grid-template-columns: 1fr 1fr !important; }
-      .chart-wrap.h260, .chart-wrap.h300, .chart-wrap.h340 { height: 200px !important; }
-      footer { color: #666 !important; border-top-color: #ddd !important; }
+    /* ── EXPORT LOADER ──────────────────────────────── */
+    #exportLoader {
+      position: fixed; inset: 0;
+      background: rgba(15,23,42,.85);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 16px; z-index: 9999;
+      backdrop-filter: blur(4px);
     }
+    #exportLoader p { color: #e2e8f0; font-size: .9rem; }
   </style>
 </head>
 <body>
@@ -669,55 +669,369 @@ function renderTabla(ultRows) {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   EXPORT FUNCIONS
+   EXPORT HELPERS
 ═══════════════════════════════════════════════════════════ */
-function exportPDF() { window.print(); }
+function showExportLoader(msg) {
+  const el = document.createElement('div');
+  el.id = 'exportLoader';
+  el.innerHTML = `<div class="spinner"></div><p>${msg}</p>`;
+  document.body.appendChild(el);
+}
+function hideExportLoader() { document.getElementById('exportLoader')?.remove(); }
 
-function exportExcel() {
+/* ═══════════════════════════════════════════════════════════
+   PDF — html2canvas + jsPDF
+═══════════════════════════════════════════════════════════ */
+async function exportPDF() {
+  showExportLoader('Generando PDF… puede tardar unos segundos');
+  try {
+    const btns = document.querySelectorAll('.btn-export');
+    btns.forEach(b => b.style.visibility = 'hidden');
+
+    const canvas = await html2canvas(document.getElementById('app'), {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: '#0f172a',
+      logging: false,
+      windowWidth: 1440,
+      onclone: doc => {
+        // Asegura que los canvas de Chart.js se copien correctamente
+        document.querySelectorAll('canvas').forEach((src, i) => {
+          const dst = doc.querySelectorAll('canvas')[i];
+          if (dst) dst.getContext('2d').drawImage(src, 0, 0);
+        });
+      }
+    });
+
+    btns.forEach(b => b.style.visibility = '');
+
+    const { jsPDF } = window.jspdf;
+    const imgW  = canvas.width;
+    const imgH  = canvas.height;
+    // Usar formato personalizado para que todo quepa en una sola página ancha
+    const pdf   = new jsPDF({ orientation: 'landscape', unit: 'px', format: [imgW / 2, imgH / 2] });
+    const pW    = pdf.internal.pageSize.getWidth();
+    const pH    = pdf.internal.pageSize.getHeight();
+    const ratio = pW / imgW;
+    const scaled= imgH * ratio;
+    const imgData = canvas.toDataURL('image/jpeg', 0.93);
+
+    let posY = 0, remaining = scaled;
+    pdf.addImage(imgData, 'JPEG', 0, posY, pW, scaled);
+    while (remaining > pH) {
+      posY      -= pH;
+      remaining -= pH;
+      pdf.addPage();
+      pdf.addImage(imgData, 'JPEG', 0, posY, pW, scaled);
+    }
+
+    const ultMes = S.months[S.months.length - 1];
+    pdf.save(`Dashboard_AyA_Orbe_${ultMes}.pdf`);
+  } catch(e) {
+    alert('Error generando PDF: ' + e.message);
+  } finally {
+    hideExportLoader();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXCEL — ExcelJS (informe mensual con gráficos)
+═══════════════════════════════════════════════════════════ */
+async function exportExcel() {
   if (!S.rows) return;
-  const wb = XLSX.utils.book_new();
+  showExportLoader('Generando Excel…');
+  try {
+    const wb  = new ExcelJS.Workbook();
+    wb.creator = 'AyA – Orbe Dashboard';
+    wb.created = new Date();
 
-  // Hoja 1 – Base de datos completa
-  const wsBase = [
-    ['Técnico', 'Mes', 'Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
-    ...S.rows.map(r => {
-      const t = r.cumplió + r.noCumplió;
-      return [r.tecnico, r.mes, t, r.cumplió, r.noCumplió, t ? (r.cumplió / t * 100).toFixed(1) + '%' : '0%'];
-    })
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsBase), 'Base_Datos');
+    const ultMes   = S.months[S.months.length - 1];
+    const ultLabel = S.mLabels[S.mLabels.length - 1];
+    const ultRows  = S.rows.filter(r => r.mes === ultMes);
 
-  // Hoja 2 – Resumen mensual
-  const wsMes = [
-    ['Mes', 'Total Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
-    ...S.monthly.map((m, i) => [
-      S.mLabels[i], m.total, m.cumplió, m.noCumplió,
-      m.total ? (m.cumplió / m.total * 100).toFixed(1) + '%' : '0%'
-    ])
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsMes), 'Resumen_Mensual');
+    // KPIs
+    const gCumplió   = S.rows.reduce((s,r) => s + r.cumplió, 0);
+    const gNoCumplió = S.rows.reduce((s,r) => s + r.noCumplió, 0);
+    const gTotal     = gCumplió + gNoCumplió;
+    const gPct       = gTotal ? (gCumplió / gTotal * 100).toFixed(1) : '0';
+    const ultNoCumpl = ultRows.reduce((s,r) => s + r.noCumplió, 0);
+    const satisfUlt  = SATISF[ultMes];
 
-  // Hoja 3 – Resumen por técnico
-  const wsTec = [
-    ['Técnico', 'Total Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
-    ...S.tecTotals.map(t => [t.tec, t.total, t.cumplió, t.noCumplió, t.pct.toFixed(1) + '%'])
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsTec), 'Resumen_Técnicos');
+    // ── Paleta ──────────────────────────────────────
+    const C = {
+      azul:      '1D4ED8', azulO:  '0F1F40', azulCl: 'DBEAFE',
+      verde:     '15803D', verdeCl:'DCFCE7',
+      rojo:      'B91C1C', rojoCl: 'FEE2E2',
+      ambar:     'B45309', ambarCl:'FEF3C7',
+      gris:      '475569', grisCl: 'F8FAFC',
+      blanco:    'FFFFFF', texto:  '1E293B',
+    };
 
-  // Hoja 4 – Último mes detalle
-  const ultMes = S.months[S.months.length - 1];
-  const ultRows = S.rows.filter(r => r.mes === ultMes);
-  const wsUlt = [
-    [`Detalle – ${ultMes}`],
-    ['Técnico', 'Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
-    ...ultRows.map(r => {
-      const t = r.cumplió + r.noCumplió;
-      return [r.tecnico, t, r.cumplió, r.noCumplió, t ? (r.cumplió / t * 100).toFixed(1) + '%' : '0%'];
-    })
-  ];
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsUlt), `Detalle_${ultMes}`);
+    const border = (color = 'CBD5E1') => ({
+      top:    { style:'thin', color:{argb:'FF'+color} },
+      bottom: { style:'thin', color:{argb:'FF'+color} },
+      left:   { style:'thin', color:{argb:'FF'+color} },
+      right:  { style:'thin', color:{argb:'FF'+color} },
+    });
 
-  XLSX.writeFile(wb, `Metricas_AyA_Orbe_${ultMes}.xlsx`);
+    const hdr = (cell, bg = C.azulO, fg = C.blanco) => {
+      cell.fill      = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+bg} };
+      cell.font      = { bold:true, color:{argb:'FF'+fg}, size:10.5 };
+      cell.alignment = { horizontal:'center', vertical:'middle', wrapText:true };
+      cell.border    = border(C.azulO);
+    };
+    const dat = (cell, bg = C.blanco, bold = false, align = 'center') => {
+      cell.fill      = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+bg} };
+      cell.font      = { bold, color:{argb:'FF'+C.texto}, size:10 };
+      cell.alignment = { horizontal:align, vertical:'middle' };
+      cell.border    = border();
+    };
+    const badge = (cell, pct) => {
+      const good = pct >= 95, mid = pct >= 80;
+      const bg = good ? C.verdeCl : mid ? C.ambarCl : C.rojoCl;
+      const fg = good ? C.verde   : mid ? C.ambar   : C.rojo;
+      const lbl= good ? 'Óptimo'  : mid ? 'Regular' : 'Crítico';
+      cell.value = lbl;
+      cell.fill  = { type:'pattern', pattern:'solid', fgColor:{argb:'FF'+bg} };
+      cell.font  = { bold:true, color:{argb:'FF'+fg}, size:10 };
+      cell.alignment = { horizontal:'center', vertical:'middle' };
+      cell.border = border();
+    };
+
+    // ╔══════════════════════════════════════════════╗
+    // ║  HOJA 1 – PORTADA                            ║
+    // ╚══════════════════════════════════════════════╝
+    const portada = wb.addWorksheet('Portada');
+    portada.views = [{showGridLines:false}];
+    portada.columns = [{width:2},{width:26},{width:20},{width:20},{width:20},{width:2}];
+
+    // Título
+    portada.mergeCells('B2:E2');
+    Object.assign(portada.getCell('B2'), {value:'INFORME MENSUAL DE MÉTRICAS'});
+    portada.getCell('B2').font  = {size:22, bold:true, color:{argb:'FF'+C.blanco}};
+    portada.getCell('B2').fill  = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.azul}};
+    portada.getCell('B2').alignment = {horizontal:'center',vertical:'middle'};
+    portada.getRow(2).height = 58;
+
+    portada.mergeCells('B3:E3');
+    portada.getCell('B3').value = 'AyA – Orbe  |  Contrato N° #2024LY-000011-0021400001';
+    portada.getCell('B3').font  = {size:11, color:{argb:'FF'+C.gris}};
+    portada.getCell('B3').alignment = {horizontal:'center',vertical:'middle'};
+    portada.getRow(3).height = 28;
+
+    portada.mergeCells('B5:E5');
+    portada.getCell('B5').value = `Período: ${S.mLabels[0]} – ${ultLabel}   |   Generado: ${new Date().toLocaleDateString('es-CR',{day:'2-digit',month:'long',year:'numeric'})}`;
+    portada.getCell('B5').font  = {size:11, color:{argb:'FF'+C.texto}};
+    portada.getCell('B5').alignment = {horizontal:'center'};
+    portada.getRow(5).height = 22;
+
+    // KPI cards
+    portada.getRow(7).height = 30;
+    portada.getRow(8).height = 52;
+    portada.getRow(9).height = 22;
+    const kpiHdrs = ['Total Casos Atendidos','Cumplimiento Global','No Cumplió ('+ultMes+')','Satisfacción ('+ultMes+')'];
+    const kpiVals = [gTotal.toLocaleString('es'), gPct+'%', ultNoCumpl, satisfUlt ? satisfUlt.prom.toFixed(2)+' / 5':'N/D'];
+    const kpiBgs  = [C.azulCl, C.verdeCl, C.rojoCl, C.ambarCl];
+    const kpiFgs  = [C.azul, C.verde, C.rojo, C.ambar];
+    ['B','C','D','E'].forEach((col, i) => {
+      hdr(portada.getCell(`${col}7`), C.azulO);
+      portada.getCell(`${col}7`).value = kpiHdrs[i];
+      const vCell = portada.getCell(`${col}8`);
+      vCell.value = kpiVals[i];
+      vCell.fill  = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+kpiBgs[i]}};
+      vCell.font  = {bold:true, size:20, color:{argb:'FF'+kpiFgs[i]}};
+      vCell.alignment = {horizontal:'center',vertical:'middle'};
+      vCell.border = border();
+      const sCell = portada.getCell(`${col}9`);
+      const subs  = [`${S.mLabels[0]} – ${ultLabel}`,`${gCumplió.toLocaleString('es')} resueltos`,`De ${ultRows.reduce((s,r)=>s+r.cumplió+r.noCumplió,0)} casos en ${ultMes}`, satisfUlt?`${satisfUlt.resp} respuestas`:''];
+      sCell.value = subs[i];
+      sCell.font  = {size:9, color:{argb:'FF'+C.gris}};
+      sCell.alignment = {horizontal:'center'};
+    });
+
+    // ╔══════════════════════════════════════════════╗
+    // ║  HOJA 2 – DETALLE MES ACTUAL                 ║
+    // ╚══════════════════════════════════════════════╝
+    const detSheet = wb.addWorksheet(`Detalle ${ultMes}`);
+    detSheet.views = [{showGridLines:false}];
+    detSheet.columns = [{width:2},{width:24},{width:14},{width:14},{width:14},{width:18},{width:12},{width:2}];
+
+    detSheet.mergeCells('B2:G2');
+    detSheet.getCell('B2').value = `Detalle de Casos – ${ultMes} ${ultLabel.split(' ')[1]}`;
+    detSheet.getCell('B2').font  = {size:16, bold:true, color:{argb:'FF'+C.blanco}};
+    detSheet.getCell('B2').fill  = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.azul}};
+    detSheet.getCell('B2').alignment = {horizontal:'center',vertical:'middle'};
+    detSheet.getRow(2).height = 42;
+
+    detSheet.getRow(4).height = 28;
+    ['Técnico','Total Casos','Cumplió','No Cumplió','% Cumplimiento','Estado'].forEach((h,i) => {
+      const cell = detSheet.getCell(`${'BCDEFG'[i]}4`);
+      cell.value = h; hdr(cell);
+    });
+
+    ultRows.forEach((r, i) => {
+      const rowNum = 5 + i;
+      const total  = r.cumplió + r.noCumplió;
+      const pct    = total ? r.cumplió / total * 100 : 0;
+      const bg     = i % 2 === 0 ? C.blanco : C.grisCl;
+      detSheet.getRow(rowNum).height = 22;
+
+      [r.tecnico, total, r.cumplió, r.noCumplió, pct.toFixed(1)+'%'].forEach((v, j) => {
+        const cell = detSheet.getCell(`${'BCDEF'[j]}${rowNum}`);
+        cell.value = v; dat(cell, bg, j===0, j===0?'left':'center');
+      });
+      badge(detSheet.getCell(`G${rowNum}`), pct);
+    });
+
+    // Fila totales
+    const totRow = 5 + ultRows.length;
+    const totC = ultRows.reduce((s,r)=>s+r.cumplió,0);
+    const totN = ultRows.reduce((s,r)=>s+r.noCumplió,0);
+    const totT = totC + totN;
+    detSheet.getRow(totRow).height = 26;
+    ['TOTAL', totT, totC, totN, (totT?((totC/totT)*100).toFixed(1)+'%':'0%'),''].forEach((v,i) => {
+      const cell = detSheet.getCell(`${'BCDEFG'[i]}${totRow}`);
+      cell.value = v; hdr(cell, C.azul);
+    });
+
+    // ╔══════════════════════════════════════════════╗
+    // ║  HOJA 3 – EVOLUCIÓN MENSUAL                  ║
+    // ╚══════════════════════════════════════════════╝
+    const evSheet = wb.addWorksheet('Evolución Mensual');
+    evSheet.views = [{showGridLines:false}];
+    const evCols = [{width:2},{width:12}];
+    S.tecnicos.forEach(() => evCols.push({width:12}));
+    evCols.push({width:12},{width:12},{width:12},{width:14},{width:2});
+    evSheet.columns = evCols;
+
+    const evLast = String.fromCharCode(66 + S.tecnicos.length + 4);
+    evSheet.mergeCells(`B2:${evLast}2`);
+    evSheet.getCell('B2').value = `Evolución Mensual – ${S.mLabels[0]} a ${ultLabel}`;
+    evSheet.getCell('B2').font  = {size:16, bold:true, color:{argb:'FF'+C.blanco}};
+    evSheet.getCell('B2').fill  = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.azul}};
+    evSheet.getCell('B2').alignment = {horizontal:'center',vertical:'middle'};
+    evSheet.getRow(2).height = 42;
+
+    evSheet.getRow(4).height = 28;
+    ['Mes',...S.tecnicos,'Total','Cumplió','No Cumplió','% Cumpl.'].forEach((h,i) => {
+      const cell = evSheet.getCell(`${String.fromCharCode(66+i)}4`);
+      cell.value = h; hdr(cell);
+    });
+
+    S.months.forEach((m, mi) => {
+      const rowNum = 5 + mi;
+      const md  = S.monthly[mi];
+      const bg  = mi % 2 === 0 ? C.blanco : C.grisCl;
+      const pct = md.total ? md.cumplió / md.total * 100 : 0;
+      evSheet.getRow(rowNum).height = 22;
+
+      const mCell = evSheet.getCell(`B${rowNum}`);
+      mCell.value = S.mLabels[mi]; dat(mCell, bg, true);
+
+      S.tecnicos.forEach((t, ti) => {
+        const r = S.rows.find(x => x.tecnico===t && x.mes===m);
+        const cell = evSheet.getCell(`${String.fromCharCode(67+ti)}${rowNum}`);
+        cell.value = r ? r.cumplió + r.noCumplió : 0; dat(cell, bg);
+      });
+
+      const base = 66 + S.tecnicos.length + 1;
+      [md.total, md.cumplió, md.noCumplió].forEach((v, j) => {
+        const cell = evSheet.getCell(`${String.fromCharCode(base+j)}${rowNum}`);
+        cell.value = v; dat(cell, bg);
+      });
+      const pCell = evSheet.getCell(`${String.fromCharCode(base+3)}${rowNum}`);
+      pCell.value = pct.toFixed(1)+'%';
+      dat(pCell, pct>=97?C.verdeCl:pct>=90?C.ambarCl:C.rojoCl, true);
+    });
+
+    // ╔══════════════════════════════════════════════╗
+    // ║  HOJA 4 – POR TÉCNICO                        ║
+    // ╚══════════════════════════════════════════════╝
+    const tecSheet = wb.addWorksheet('Por Técnico');
+    tecSheet.views = [{showGridLines:false}];
+    tecSheet.columns = [{width:2},{width:24},{width:14},{width:14},{width:14},{width:18},{width:12},{width:2}];
+
+    tecSheet.mergeCells('B2:G2');
+    tecSheet.getCell('B2').value = `Acumulado por Técnico – ${S.mLabels[0]} a ${ultLabel}`;
+    tecSheet.getCell('B2').font  = {size:16, bold:true, color:{argb:'FF'+C.blanco}};
+    tecSheet.getCell('B2').fill  = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.azul}};
+    tecSheet.getCell('B2').alignment = {horizontal:'center',vertical:'middle'};
+    tecSheet.getRow(2).height = 42;
+
+    tecSheet.getRow(4).height = 28;
+    ['Técnico','Total Casos','Cumplió','No Cumplió','% Cumplimiento','Estado'].forEach((h,i) => {
+      const cell = tecSheet.getCell(`${'BCDEFG'[i]}4`);
+      cell.value = h; hdr(cell);
+    });
+
+    S.tecTotals.forEach((t, i) => {
+      const rowNum = 5 + i;
+      const bg = i % 2 === 0 ? C.blanco : C.grisCl;
+      tecSheet.getRow(rowNum).height = 22;
+      [t.tec, t.total, t.cumplió, t.noCumplió, t.pct.toFixed(1)+'%'].forEach((v, j) => {
+        const cell = tecSheet.getCell(`${'BCDEF'[j]}${rowNum}`);
+        cell.value = v; dat(cell, bg, j===0, j===0?'left':'center');
+      });
+      badge(tecSheet.getCell(`G${rowNum}`), t.pct);
+    });
+
+    // ╔══════════════════════════════════════════════╗
+    // ║  HOJA 5 – GRÁFICOS                           ║
+    // ╚══════════════════════════════════════════════╝
+    const grafSheet = wb.addWorksheet('Graficos');
+    grafSheet.views = [{showGridLines:false}];
+
+    grafSheet.mergeCells('A1:N1');
+    grafSheet.getCell('A1').value = `Gráficos – ${S.mLabels[0]} a ${ultLabel}`;
+    grafSheet.getCell('A1').font  = {size:16, bold:true, color:{argb:'FF'+C.blanco}};
+    grafSheet.getCell('A1').fill  = {type:'pattern',pattern:'solid',fgColor:{argb:'FF'+C.azul}};
+    grafSheet.getCell('A1').alignment = {horizontal:'center',vertical:'middle'};
+    grafSheet.getRow(1).height = 42;
+
+    // Títulos de cada gráfico antes de la imagen
+    const chartCfg = [
+      { id:'chartTendencia',  title:'Tendencia Mensual de Casos',          col:0,  row:3  },
+      { id:'chartCumplMes',   title:'% Cumplimiento por Mes',              col:8,  row:3  },
+      { id:'chartTecnicoMes', title:'Evolución de Casos por Técnico',      col:0,  row:24 },
+      { id:'chartTotalTec',   title:'Total de Casos por Técnico',          col:0,  row:45 },
+      { id:'chartCumplTec',   title:'% Cumplimiento Acumulado por Técnico',col:8,  row:45 },
+      { id:'chartUltMes',     title:`Detalle ${ultMes} – Cumplió vs No`,   col:0,  row:66 },
+      { id:'chartSatisf',     title:'Satisfacción Histórica del Usuario',  col:8,  row:66 },
+    ];
+
+    for (const cfg of chartCfg) {
+      // Label encima del gráfico
+      const labelCell = grafSheet.getCell(
+        `${String.fromCharCode(65 + cfg.col)}${cfg.row}`
+      );
+      labelCell.value = cfg.title;
+      labelCell.font  = {bold:true, size:11, color:{argb:'FF'+C.azulO}};
+
+      const canvas  = document.getElementById(cfg.id);
+      if (!canvas) continue;
+      const imgData = canvas.toDataURL('image/png').split(',')[1];
+      const imgId   = wb.addImage({ base64: imgData, extension: 'png' });
+      grafSheet.addImage(imgId, {
+        tl: { col: cfg.col,     row: cfg.row },
+        br: { col: cfg.col + 7, row: cfg.row + 19 },
+      });
+    }
+
+    // ── Guardar ─────────────────────────────────────
+    const buf  = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `Informe_AyA_Orbe_${ultMes}.xlsx`;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(url);
+
+  } catch(e) {
+    alert('Error generando Excel: ' + e.message);
+    console.error(e);
+  } finally {
+    hideExportLoader();
+  }
 }
 
 /* ── START ── */
