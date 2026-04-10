@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Dashboard Métricas AyA – Orbe | Ago 2025 – Mar 2026</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    /* ── HEADER ─────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0f2d4a 100%);
+      padding: 24px 36px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 3px solid #2563eb;
+      box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    }
+    header .brand { display: flex; align-items: center; gap: 14px; }
+    header .brand svg { width: 44px; height: 44px; }
+    header h1 { font-size: 1.55rem; font-weight: 700; color: #f1f5f9; }
+    header h1 span { color: #60a5fa; }
+    header .period {
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.15);
+      border-radius: 8px;
+      padding: 8px 16px;
+      font-size: .85rem;
+      color: #94a3b8;
+    }
+    header .period strong { color: #f1f5f9; font-size: .95rem; }
+
+    /* ── LAYOUT ─────────────────────────────────────── */
+    main { padding: 28px 36px; display: flex; flex-direction: column; gap: 28px; }
+
+    /* ── KPI CARDS ──────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 18px;
+    }
+    .kpi-card {
+      background: #1e293b;
+      border-radius: 14px;
+      padding: 22px 24px;
+      border-left: 4px solid var(--accent);
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
+      position: relative;
+      overflow: hidden;
+    }
+    .kpi-card::after {
+      content: '';
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 100px; height: 100px;
+      border-radius: 50%;
+      background: var(--accent);
+      opacity: .07;
+    }
+    .kpi-card .label { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 8px; }
+    .kpi-card .value { font-size: 2.4rem; font-weight: 800; color: var(--accent); line-height: 1; }
+    .kpi-card .sub { font-size: .78rem; color: #64748b; margin-top: 6px; }
+    .kpi-card:nth-child(1) { --accent: #60a5fa; }
+    .kpi-card:nth-child(2) { --accent: #34d399; }
+    .kpi-card:nth-child(3) { --accent: #fb923c; }
+    .kpi-card:nth-child(4) { --accent: #a78bfa; }
+
+    /* ── CHART GRID ─────────────────────────────────── */
+    .chart-row { display: grid; gap: 18px; }
+    .row-2 { grid-template-columns: 1fr 1fr; }
+    .row-3 { grid-template-columns: 2fr 1fr; }
+    .row-full { grid-template-columns: 1fr; }
+
+    .card {
+      background: #1e293b;
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.3);
+    }
+    .card h2 {
+      font-size: .9rem;
+      font-weight: 600;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 18px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #334155;
+    }
+    .card h2 span { color: #60a5fa; font-size: 1.05rem; }
+    .chart-wrap { position: relative; }
+    .chart-wrap.h280 { height: 280px; }
+    .chart-wrap.h320 { height: 320px; }
+    .chart-wrap.h360 { height: 360px; }
+
+    /* ── TABLE ──────────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+    thead tr { background: #0f172a; }
+    thead th { padding: 10px 14px; text-align: left; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; border-bottom: 2px solid #334155; }
+    tbody tr { border-bottom: 1px solid #1e293b; transition: background .15s; }
+    tbody tr:hover { background: rgba(96,165,250,.06); }
+    tbody td { padding: 11px 14px; color: #e2e8f0; }
+    .badge {
+      display: inline-block; padding: 3px 10px; border-radius: 20px;
+      font-size: .75rem; font-weight: 700;
+    }
+    .badge-green  { background: rgba(52,211,153,.15); color: #34d399; }
+    .badge-yellow { background: rgba(251,191,36,.15);  color: #fbbf24; }
+    .badge-red    { background: rgba(248,113,113,.15); color: #f87171; }
+
+    /* ── PROGRESS BAR ───────────────────────────────── */
+    .prog-wrap { display: flex; align-items: center; gap: 10px; }
+    .prog-bar { flex: 1; height: 6px; border-radius: 9px; background: #334155; overflow: hidden; }
+    .prog-bar .fill { height: 100%; border-radius: 9px; }
+
+    /* ── FOOTER ─────────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 18px;
+      font-size: .75rem;
+      color: #475569;
+      border-top: 1px solid #1e3a5f;
+    }
+
+    @media (max-width: 1100px) {
+      .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+      .row-2, .row-3 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ══ HEADER ═══════════════════════════════════════════════ -->
+<header>
+  <div class="brand">
+    <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="22" cy="22" r="22" fill="#1d4ed8"/>
+      <path d="M10 30 L22 12 L34 30" stroke="#93c5fd" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      <path d="M15 30 L29 30" stroke="#93c5fd" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="22" cy="12" r="3" fill="#60a5fa"/>
+    </svg>
+    <div>
+      <h1><span>AyA</span> – Orbe | Dashboard de Métricas</h1>
+      <p style="font-size:.78rem;color:#64748b;margin-top:2px;">Contrato N° #2024LY-000011-0021400001</p>
+    </div>
+  </div>
+  <div class="period">
+    <strong>Ago 2025 – Mar 2026</strong><br>
+    Última actualización: Marzo 2026
+  </div>
+</header>
+
+<!-- ══ MAIN ══════════════════════════════════════════════════ -->
+<main>
+
+  <!-- KPI CARDS -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="label">Total Casos Atendidos</div>
+      <div class="value">4,162</div>
+      <div class="sub">Ago 2025 – Mar 2026 · 6 técnicos</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Cumplimiento Global</div>
+      <div class="value">96.1%</div>
+      <div class="sub">3,961 resueltos de 4,162 casos</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">No Cumplió – Marzo</div>
+      <div class="value">47</div>
+      <div class="sub">De 520 casos atendidos en Marzo</div>
+    </div>
+    <div class="kpi-card">
+      <div class="label">Satisfacción – Marzo 2026</div>
+      <div class="value">4.78</div>
+      <div class="sub">Escala 0–5 · 76 respuestas</div>
+    </div>
+  </div>
+
+  <!-- ROW 1: Tendencia mensual + % Cumplimiento mensual -->
+  <div class="chart-row row-2">
+    <div class="card">
+      <h2><span>Tendencia</span> — Casos Atendidos por Mes</h2>
+      <div class="chart-wrap h280"><canvas id="chartTendencia"></canvas></div>
+    </div>
+    <div class="card">
+      <h2><span>Cumplimiento</span> — % Global por Mes</h2>
+      <div class="chart-wrap h280"><canvas id="chartCumplMes"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 2: Casos por técnico por mes (stacked bar) -->
+  <div class="chart-row row-full">
+    <div class="card">
+      <h2><span>Casos por Técnico</span> — Evolución Mensual (Ago 2025 – Mar 2026)</h2>
+      <div class="chart-wrap h360"><canvas id="chartTecnicoMes"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Totales por técnico + Cumplimiento % por técnico -->
+  <div class="chart-row row-2">
+    <div class="card">
+      <h2><span>Total Casos</span> — por Técnico (acumulado)</h2>
+      <div class="chart-wrap h280"><canvas id="chartTotalTec"></canvas></div>
+    </div>
+    <div class="card">
+      <h2><span>Cumplimiento %</span> — por Técnico (acumulado)</h2>
+      <div class="chart-wrap h280"><canvas id="chartCumplTec"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 4: Detalle Marzo 2026 (bar) + Satisfacción histórica -->
+  <div class="chart-row row-3">
+    <div class="card">
+      <h2><span>Marzo 2026</span> — Casos vs Cumplimiento por Técnico</h2>
+      <div class="chart-wrap h320"><canvas id="chartMarzo"></canvas></div>
+    </div>
+    <div class="card">
+      <h2><span>Satisfacción</span> — Promedio Histórico</h2>
+      <div class="chart-wrap h320"><canvas id="chartSatisf"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ROW 5: Tabla detalle Marzo 2026 -->
+  <div class="card">
+    <h2><span>Detalle</span> — Marzo 2026 por Técnico</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Técnico</th>
+          <th>Casos</th>
+          <th>Cumplió</th>
+          <th>No Cumplió</th>
+          <th>% Cumplimiento</th>
+          <th>Estado</th>
+        </tr>
+      </thead>
+      <tbody id="tablaMar"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>
+  Dashboard generado con datos de <strong>Metricas_AyA_Orbe_Consolidado.xlsx</strong> y <strong>Metricas_AyA_Orbe_Marzo2026.pptx</strong> &nbsp;·&nbsp; AyA – Orbe 2026
+</footer>
+
+<script>
+/* ═══════════════════════════════════════════════
+   DATA
+═══════════════════════════════════════════════ */
+const meses    = ['Ago','Sep','Oct','Nov','Dic','Ene','Feb','Mar'];
+const mesLabel = ['Ago 25','Sep 25','Oct 25','Nov 25','Dic 25','Ene 26','Feb 26','Mar 26'];
+
+// Casos atendidos totales por mes (cumplió + no cumplió)
+const casosMes = [832, 1275, 1096, 1202, 830, 1076, 1068, 520];
+// Cumplió por mes
+const cumplMes = [828, 1240, 1053, 1158, 784, 1036, 1009, 473];
+// No cumplió por mes
+const noCumplMes = [4, 35, 43, 44, 46, 40, 59, 47];
+// % cumplimiento mensual
+const pctMes = casosMes.map((c,i) => +((cumplMes[i]/c)*100).toFixed(1));
+
+// Satisfacción
+const messSatisf  = ['Sep 25','Oct 25','Nov 25','Dic 25','Ene 26','Feb 26','Mar 26'];
+const satisfResp  = [100, 108, 116, 129, 137, 137, 76];
+const satisfProm  = [3.91, 4.15, 3.72, 3.63, 3.74, 3.74, 4.78];
+
+// Por técnico (8 meses: Ago–Mar)
+const tecnicos = ['Dennis','Diego','Evelyn','Jordan','Sebastián','William'];
+const colors   = ['#60a5fa','#34d399','#fbbf24','#a78bfa','#f87171','#22d3ee'];
+const bgAlpha  = (hex, a) => hex + Math.round(a*255).toString(16).padStart(2,'0');
+
+const datosPorTec = {
+  Dennis:    [0,   120, 92,  103, 74,  53,  23,  19 ],
+  Diego:     [92,  127, 122, 114, 61,  83,  85,  85 ],
+  Evelyn:    [0,   0,   0,   0,   53,  78,  86,  90 ],
+  Jordan:    [81,  110, 104, 114, 63,  109, 106, 99 ],
+  Sebastián: [75,  153, 58,  84,  64,  45,  37,  52 ],
+  William:   [126, 135, 157, 184, 103, 178, 190, 175],
+};
+
+// Acumulados por técnico
+const totales = {
+  Dennis:    484,
+  Diego:     769,
+  Evelyn:    307,
+  Jordan:    786,
+  Sebastián: 568,
+  William:   1248,
+};
+const cumplPct = {
+  Dennis:    94.4,
+  Diego:     95.4,
+  Evelyn:    95.1,
+  Jordan:    98.3,
+  Sebastián: 82.6,
+  William:   98.9,
+};
+
+// Detalle Marzo 2026
+const marzoData = [
+  { tec:'Dennis',    casos:19,  si:14,  no:5,  pct:73.7 },
+  { tec:'Diego',     casos:85,  si:85,  no:0,  pct:100  },
+  { tec:'Evelyn',    casos:90,  si:81,  no:9,  pct:90.0 },
+  { tec:'Jordan',    casos:99,  si:98,  no:1,  pct:99.0 },
+  { tec:'Sebastián', casos:52,  si:24,  no:28, pct:46.2 },
+  { tec:'William',   casos:175, si:171, no:4,  pct:97.7 },
+];
+
+/* ═══════════════════════════════════════════════
+   CHART DEFAULTS
+═══════════════════════════════════════════════ */
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+Chart.defaults.plugins.legend.labels.padding  = 16;
+
+const gridColor = 'rgba(255,255,255,.06)';
+
+function baseOptions(yLabel='') {
+  return {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position:'top' },
+      tooltip: { backgroundColor:'#0f172a', borderColor:'#334155', borderWidth:1, padding:12 }
+    },
+    scales: {
+      x: { grid:{ color: gridColor }, ticks:{ color:'#94a3b8' } },
+      y: { grid:{ color: gridColor }, ticks:{ color:'#94a3b8' }, title:{ display:!!yLabel, text:yLabel, color:'#64748b' } }
+    }
+  };
+}
+
+/* ── 1. Tendencia mensual ───────────────────── */
+new Chart(document.getElementById('chartTendencia'), {
+  type: 'bar',
+  data: {
+    labels: mesLabel,
+    datasets: [
+      {
+        label: 'Casos atendidos',
+        data: casosMes,
+        backgroundColor: 'rgba(96,165,250,.55)',
+        borderColor: '#60a5fa',
+        borderWidth: 2,
+        borderRadius: 6,
+        order: 2
+      },
+      {
+        type: 'line',
+        label: 'Cumplió',
+        data: cumplMes,
+        borderColor: '#34d399',
+        backgroundColor: 'rgba(52,211,153,.1)',
+        pointBackgroundColor: '#34d399',
+        pointRadius: 4,
+        tension: .35,
+        fill: false,
+        order: 1
+      }
+    ]
+  },
+  options: { ...baseOptions('N° Casos'), plugins: { ...baseOptions().plugins } }
+});
+
+/* ── 2. % Cumplimiento por mes ──────────────── */
+new Chart(document.getElementById('chartCumplMes'), {
+  type: 'line',
+  data: {
+    labels: mesLabel,
+    datasets: [{
+      label: '% Cumplimiento',
+      data: pctMes,
+      borderColor: '#a78bfa',
+      backgroundColor: 'rgba(167,139,250,.12)',
+      pointBackgroundColor: '#a78bfa',
+      pointRadius: 5,
+      pointHoverRadius: 7,
+      tension: .35,
+      fill: true
+    }]
+  },
+  options: {
+    ...baseOptions('%'),
+    plugins: {
+      ...baseOptions().plugins,
+      annotation: {}
+    },
+    scales: {
+      x: { grid:{ color: gridColor } },
+      y: {
+        grid:{ color: gridColor },
+        min: 88, max: 101,
+        ticks:{ callback: v => v + '%' }
+      }
+    }
+  }
+});
+
+/* ── 3. Stacked bar por técnico/mes ─────────── */
+new Chart(document.getElementById('chartTecnicoMes'), {
+  type: 'bar',
+  data: {
+    labels: mesLabel,
+    datasets: tecnicos.map((t, i) => ({
+      label: t,
+      data: datosPorTec[t],
+      backgroundColor: bgAlpha(colors[i], .7),
+      borderColor: colors[i],
+      borderWidth: 1,
+      borderRadius: 3,
+    }))
+  },
+  options: {
+    ...baseOptions('Casos'),
+    plugins: { ...baseOptions().plugins, legend:{ position:'top' } },
+    scales: {
+      x: { stacked: true, grid:{ color: gridColor } },
+      y: { stacked: true, grid:{ color: gridColor } }
+    }
+  }
+});
+
+/* ── 4. Total por técnico ───────────────────── */
+new Chart(document.getElementById('chartTotalTec'), {
+  type: 'bar',
+  data: {
+    labels: tecnicos,
+    datasets: [{
+      label: 'Total casos',
+      data: tecnicos.map(t => totales[t]),
+      backgroundColor: colors.map(c => bgAlpha(c, .65)),
+      borderColor: colors,
+      borderWidth: 2,
+      borderRadius: 8,
+    }]
+  },
+  options: {
+    ...baseOptions('Casos'),
+    indexAxis: 'y',
+    plugins: { legend:{ display:false }, tooltip:{ ...baseOptions().plugins.tooltip } }
+  }
+});
+
+/* ── 5. Cumplimiento % por técnico ──────────── */
+new Chart(document.getElementById('chartCumplTec'), {
+  type: 'bar',
+  data: {
+    labels: tecnicos,
+    datasets: [{
+      label: '% Cumplimiento',
+      data: tecnicos.map(t => cumplPct[t]),
+      backgroundColor: tecnicos.map(t => {
+        const v = cumplPct[t];
+        return v >= 97 ? 'rgba(52,211,153,.7)'
+             : v >= 90 ? 'rgba(251,191,36,.7)'
+             : 'rgba(248,113,113,.7)';
+      }),
+      borderColor: tecnicos.map(t => {
+        const v = cumplPct[t];
+        return v >= 97 ? '#34d399' : v >= 90 ? '#fbbf24' : '#f87171';
+      }),
+      borderWidth: 2,
+      borderRadius: 8,
+    }]
+  },
+  options: {
+    ...baseOptions('%'),
+    indexAxis: 'y',
+    plugins: { legend:{ display:false }, tooltip:{ ...baseOptions().plugins.tooltip } },
+    scales: {
+      x: { grid:{ color: gridColor }, min: 70, max: 101, ticks:{ callback: v => v + '%' } },
+      y: { grid:{ color: gridColor } }
+    }
+  }
+});
+
+/* ── 6. Detalle Marzo ───────────────────────── */
+new Chart(document.getElementById('chartMarzo'), {
+  type: 'bar',
+  data: {
+    labels: marzoData.map(d => d.tec),
+    datasets: [
+      {
+        label: 'Cumplió',
+        data: marzoData.map(d => d.si),
+        backgroundColor: 'rgba(52,211,153,.65)',
+        borderColor: '#34d399',
+        borderWidth: 2,
+        borderRadius: 5,
+        stack: 's'
+      },
+      {
+        label: 'No Cumplió',
+        data: marzoData.map(d => d.no),
+        backgroundColor: 'rgba(248,113,113,.65)',
+        borderColor: '#f87171',
+        borderWidth: 2,
+        borderRadius: 5,
+        stack: 's'
+      }
+    ]
+  },
+  options: {
+    ...baseOptions('Casos'),
+    plugins: { ...baseOptions().plugins },
+    scales: {
+      x: { stacked: true, grid:{ color: gridColor } },
+      y: { stacked: true, grid:{ color: gridColor } }
+    }
+  }
+});
+
+/* ── 7. Satisfacción ────────────────────────── */
+new Chart(document.getElementById('chartSatisf'), {
+  type: 'line',
+  data: {
+    labels: messSatisf,
+    datasets: [
+      {
+        label: 'Promedio (0–5)',
+        data: satisfProm,
+        borderColor: '#fbbf24',
+        backgroundColor: 'rgba(251,191,36,.12)',
+        pointBackgroundColor: '#fbbf24',
+        pointRadius: 5,
+        tension: .35,
+        fill: true,
+        yAxisID: 'y'
+      },
+      {
+        type: 'bar',
+        label: 'Respuestas',
+        data: satisfResp,
+        backgroundColor: 'rgba(96,165,250,.25)',
+        borderColor: 'rgba(96,165,250,.5)',
+        borderWidth: 1,
+        borderRadius: 4,
+        yAxisID: 'y2'
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { ...baseOptions().plugins },
+    scales: {
+      x: { grid:{ color: gridColor } },
+      y:  { grid:{ color: gridColor }, min: 3, max: 5.2, position:'left', ticks:{ callback: v => v.toFixed(1) } },
+      y2: { grid:{ display:false }, position:'right', ticks:{ color:'#475569' } }
+    }
+  }
+});
+
+/* ═══════════════════════════════════════════════
+   TABLA MARZO
+═══════════════════════════════════════════════ */
+const tbody = document.getElementById('tablaMar');
+marzoData.forEach((d, i) => {
+  const pct  = d.pct;
+  const badge = pct >= 95 ? 'badge-green' : pct >= 80 ? 'badge-yellow' : 'badge-red';
+  const label = pct >= 95 ? 'Óptimo'      : pct >= 80 ? 'Regular'      : 'Crítico';
+  const fillColor = pct >= 95 ? '#34d399' : pct >= 80 ? '#fbbf24' : '#f87171';
+  tbody.innerHTML += `
+    <tr>
+      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colors[i]};margin-right:8px;"></span>${d.tec}</td>
+      <td><strong>${d.casos}</strong></td>
+      <td style="color:#34d399">${d.si}</td>
+      <td style="color:#f87171">${d.no}</td>
+      <td>
+        <div class="prog-wrap">
+          <div class="prog-bar"><div class="fill" style="width:${pct}%;background:${fillColor}"></div></div>
+          <span style="font-size:.82rem;color:#e2e8f0;min-width:42px">${pct}%</span>
+        </div>
+      </td>
+      <td><span class="badge ${badge}">${label}</span></td>
+    </tr>`;
+});
+</script>
+</body>
+</html>
