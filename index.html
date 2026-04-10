@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Dashboard Métricas AyA – Orbe | Ago 2025 – Mar 2026</title>
+  <title>Dashboard Métricas AyA – Orbe</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -15,10 +16,29 @@
       min-height: 100vh;
     }
 
+    /* ── LOADING ────────────────────────────────────── */
+    #loading {
+      position: fixed; inset: 0;
+      background: #0f172a;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 18px; z-index: 100;
+    }
+    .spinner {
+      width: 48px; height: 48px;
+      border: 4px solid #1e293b;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin .8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading p { color: #64748b; font-size: .9rem; }
+    #loading .err { color: #f87171; font-size: .85rem; max-width: 340px; text-align: center; }
+
     /* ── HEADER ─────────────────────────────────────── */
     header {
       background: linear-gradient(135deg, #1e3a5f 0%, #0f2d4a 100%);
-      padding: 20px 28px;
+      padding: 16px 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -29,10 +49,10 @@
     }
     header .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
     header .brand svg { width: 40px; height: 40px; flex-shrink: 0; }
-    header .brand > div { min-width: 0; }
-    header h1 { font-size: 1.25rem; font-weight: 700; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    header h1 { font-size: 1.2rem; font-weight: 700; color: #f1f5f9; }
     header h1 span { color: #60a5fa; }
-    header .period {
+    .header-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .period {
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.15);
       border-radius: 8px;
@@ -41,38 +61,41 @@
       color: #94a3b8;
       white-space: nowrap;
     }
-    header .period strong { color: #f1f5f9; font-size: .9rem; }
+    .period strong { color: #f1f5f9; }
+
+    /* ── EXPORT BUTTONS ─────────────────────────────── */
+    .btn-export {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      font-size: .8rem; font-weight: 600;
+      border: none; cursor: pointer;
+      transition: opacity .15s, transform .1s;
+      white-space: nowrap;
+    }
+    .btn-export:hover { opacity: .85; transform: translateY(-1px); }
+    .btn-export:active { transform: translateY(0); }
+    .btn-pdf { background: #dc2626; color: #fff; }
+    .btn-xls { background: #16a34a; color: #fff; }
 
     /* ── LAYOUT ─────────────────────────────────────── */
-    main { padding: 22px 28px; display: flex; flex-direction: column; gap: 22px; }
+    main { padding: 22px 28px; display: flex; flex-direction: column; gap: 20px; }
 
     /* ── KPI CARDS ──────────────────────────────────── */
-    .kpi-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 14px;
-    }
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
     .kpi-card {
-      background: #1e293b;
-      border-radius: 14px;
-      padding: 18px 20px;
+      background: #1e293b; border-radius: 14px; padding: 18px 20px;
       border-left: 4px solid var(--accent);
       box-shadow: 0 4px 16px rgba(0,0,0,.3);
-      position: relative;
-      overflow: hidden;
+      position: relative; overflow: hidden;
     }
     .kpi-card::after {
-      content: '';
-      position: absolute;
-      top: -30px; right: -30px;
-      width: 100px; height: 100px;
-      border-radius: 50%;
-      background: var(--accent);
-      opacity: .07;
+      content: ''; position: absolute; top: -30px; right: -30px;
+      width: 100px; height: 100px; border-radius: 50%;
+      background: var(--accent); opacity: .07;
     }
-    .kpi-card .label { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 6px; }
-    .kpi-card .value { font-size: 2.2rem; font-weight: 800; color: var(--accent); line-height: 1; }
-    .kpi-card .sub { font-size: .74rem; color: #64748b; margin-top: 5px; }
+    .kpi-card .label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: 6px; }
+    .kpi-card .value { font-size: 2.1rem; font-weight: 800; color: var(--accent); line-height: 1; }
+    .kpi-card .sub   { font-size: .72rem; color: #64748b; margin-top: 5px; }
     .kpi-card:nth-child(1) { --accent: #60a5fa; }
     .kpi-card:nth-child(2) { --accent: #34d399; }
     .kpi-card:nth-child(3) { --accent: #fb923c; }
@@ -80,59 +103,47 @@
 
     /* ── CHART GRID ─────────────────────────────────── */
     .chart-row { display: grid; gap: 16px; }
-    .row-2 { grid-template-columns: 1fr 1fr; }
-    .row-3 { grid-template-columns: 2fr 1fr; }
+    .row-2    { grid-template-columns: 1fr 1fr; }
+    .row-3    { grid-template-columns: 2fr 1fr; }
     .row-full { grid-template-columns: 1fr; }
-
     .card {
-      background: #1e293b;
-      border-radius: 14px;
-      padding: 18px;
+      background: #1e293b; border-radius: 14px; padding: 18px;
       box-shadow: 0 4px 16px rgba(0,0,0,.3);
     }
     .card h2 {
-      font-size: .82rem;
-      font-weight: 600;
-      color: #94a3b8;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      margin-bottom: 14px;
-      padding-bottom: 10px;
+      font-size: .8rem; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: .06em;
+      margin-bottom: 14px; padding-bottom: 10px;
       border-bottom: 1px solid #334155;
     }
-    .card h2 span { color: #60a5fa; font-size: .95rem; }
+    .card h2 span { color: #60a5fa; font-size: .92rem; }
     .chart-wrap { position: relative; }
-    .chart-wrap.h280 { height: 280px; }
-    .chart-wrap.h320 { height: 320px; }
-    .chart-wrap.h360 { height: 360px; }
+    .chart-wrap.h260 { height: 260px; }
+    .chart-wrap.h300 { height: 300px; }
+    .chart-wrap.h340 { height: 340px; }
 
     /* ── TABLE ──────────────────────────────────────── */
     .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-    table { width: 100%; border-collapse: collapse; font-size: .88rem; min-width: 520px; }
+    table { width: 100%; border-collapse: collapse; font-size: .86rem; min-width: 520px; }
     thead tr { background: #0f172a; }
-    thead th { padding: 10px 12px; text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; border-bottom: 2px solid #334155; }
+    thead th { padding: 10px 12px; text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: #64748b; border-bottom: 2px solid #334155; }
     tbody tr { border-bottom: 1px solid #1e293b; transition: background .15s; }
     tbody tr:hover { background: rgba(96,165,250,.06); }
     tbody td { padding: 10px 12px; color: #e2e8f0; }
-    .badge {
-      display: inline-block; padding: 3px 10px; border-radius: 20px;
-      font-size: .72rem; font-weight: 700;
-    }
-    .badge-green  { background: rgba(52,211,153,.15); color: #34d399; }
+    .badge { display: inline-block; padding: 3px 10px; border-radius: 20px; font-size: .7rem; font-weight: 700; }
+    .badge-green  { background: rgba(52,211,153,.15);  color: #34d399; }
     .badge-yellow { background: rgba(251,191,36,.15);  color: #fbbf24; }
     .badge-red    { background: rgba(248,113,113,.15); color: #f87171; }
 
     /* ── PROGRESS BAR ───────────────────────────────── */
     .prog-wrap { display: flex; align-items: center; gap: 8px; }
-    .prog-bar { flex: 1; height: 6px; border-radius: 9px; background: #334155; overflow: hidden; }
+    .prog-bar  { flex: 1; height: 6px; border-radius: 9px; background: #334155; overflow: hidden; }
     .prog-bar .fill { height: 100%; border-radius: 9px; }
 
     /* ── FOOTER ─────────────────────────────────────── */
     footer {
-      text-align: center;
-      padding: 16px;
-      font-size: .72rem;
-      color: #475569;
+      text-align: center; padding: 14px;
+      font-size: .7rem; color: #475569;
       border-top: 1px solid #1e3a5f;
     }
 
@@ -140,508 +151,577 @@
     @media (max-width: 1100px) {
       .kpi-grid { grid-template-columns: repeat(2, 1fr); }
       .row-2, .row-3 { grid-template-columns: 1fr; }
-      .chart-wrap.h360 { height: 300px; }
+      .chart-wrap.h340 { height: 280px; }
     }
 
     /* ── MOBILE (≤ 768px) ───────────────────────────── */
     @media (max-width: 768px) {
-      header { padding: 14px 16px; }
-      header h1 { font-size: 1.05rem; }
-      header .period { font-size: .75rem; padding: 6px 10px; }
-
-      main { padding: 14px 12px; gap: 14px; }
-
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
-      .kpi-card { padding: 14px 14px; border-radius: 10px; }
-      .kpi-card .value { font-size: 1.8rem; }
-      .kpi-card .label { font-size: .68rem; }
-      .kpi-card .sub { font-size: .68rem; }
-
-      .card { padding: 14px; border-radius: 10px; }
-      .card h2 { font-size: .75rem; margin-bottom: 10px; }
-
-      .chart-wrap.h280 { height: 220px; }
-      .chart-wrap.h320 { height: 240px; }
-      .chart-wrap.h360 { height: 260px; }
-
-      footer { font-size: .68rem; padding: 12px 10px; }
+      header { padding: 12px 14px; }
+      header h1 { font-size: 1rem; }
+      .period { font-size: .72rem; padding: 5px 10px; }
+      main { padding: 12px 10px; gap: 12px; }
+      .kpi-grid { gap: 8px; }
+      .kpi-card { padding: 12px 14px; }
+      .kpi-card .value { font-size: 1.7rem; }
+      .card { padding: 12px; }
+      .chart-wrap.h260 { height: 200px; }
+      .chart-wrap.h300 { height: 220px; }
+      .chart-wrap.h340 { height: 240px; }
+      footer { font-size: .65rem; }
     }
 
     /* ── SMALL PHONES (≤ 480px) ─────────────────────── */
     @media (max-width: 480px) {
-      header .brand svg { width: 32px; height: 32px; }
-      header h1 { font-size: .92rem; }
-      header .period { display: none; }
+      header .brand svg { width: 30px; height: 30px; }
+      header h1 { font-size: .88rem; }
+      .period { display: none; }
+      .kpi-card .value { font-size: 1.45rem; }
+      .chart-wrap.h260 { height: 185px; }
+      .chart-wrap.h300 { height: 200px; }
+      .chart-wrap.h340 { height: 215px; }
+    }
 
-      .kpi-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
-      .kpi-card .value { font-size: 1.55rem; }
-
-      .chart-wrap.h280 { height: 200px; }
-      .chart-wrap.h320 { height: 210px; }
-      .chart-wrap.h360 { height: 230px; }
+    /* ── PRINT / PDF ────────────────────────────────── */
+    @media print {
+      body { background: #fff !important; color: #000 !important; }
+      header { background: #1e3a5f !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .btn-export, .no-print { display: none !important; }
+      main { padding: 10px !important; gap: 12px !important; }
+      .card { background: #fff !important; border: 1px solid #ddd !important; box-shadow: none !important; break-inside: avoid; }
+      .kpi-card { background: #fff !important; border: 1px solid #ddd !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .row-2, .row-3 { grid-template-columns: 1fr 1fr !important; }
+      .chart-wrap.h260, .chart-wrap.h300, .chart-wrap.h340 { height: 200px !important; }
+      footer { color: #666 !important; border-top-color: #ddd !important; }
     }
   </style>
 </head>
 <body>
 
-<!-- ══ HEADER ═══════════════════════════════════════════════ -->
-<header>
-  <div class="brand">
-    <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="22" cy="22" r="22" fill="#1d4ed8"/>
-      <path d="M10 30 L22 12 L34 30" stroke="#93c5fd" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-      <path d="M15 30 L29 30" stroke="#93c5fd" stroke-width="2.5" stroke-linecap="round"/>
-      <circle cx="22" cy="12" r="3" fill="#60a5fa"/>
-    </svg>
-    <div>
-      <h1><span>AyA</span> – Orbe | Dashboard de Métricas</h1>
-      <p style="font-size:.78rem;color:#64748b;margin-top:2px;">Contrato N° #2024LY-000011-0021400001</p>
-    </div>
-  </div>
-  <div class="period">
-    <strong>Ago 2025 – Mar 2026</strong><br>
-    Última actualización: Marzo 2026
-  </div>
-</header>
+<!-- ══ LOADING ══════════════════════════════════════════════ -->
+<div id="loading">
+  <div class="spinner"></div>
+  <p>Cargando datos desde Google Sheets...</p>
+</div>
 
-<!-- ══ MAIN ══════════════════════════════════════════════════ -->
-<main>
+<!-- ══ APP ══════════════════════════════════════════════════ -->
+<div id="app" style="display:none">
 
-  <!-- KPI CARDS -->
-  <div class="kpi-grid">
-    <div class="kpi-card">
-      <div class="label">Total Casos Atendidos</div>
-      <div class="value">4,162</div>
-      <div class="sub">Ago 2025 – Mar 2026 · 6 técnicos</div>
+  <header>
+    <div class="brand">
+      <svg viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="22" cy="22" r="22" fill="#1d4ed8"/>
+        <path d="M10 30 L22 12 L34 30" stroke="#93c5fd" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M15 30 L29 30" stroke="#93c5fd" stroke-width="2.5" stroke-linecap="round"/>
+        <circle cx="22" cy="12" r="3" fill="#60a5fa"/>
+      </svg>
+      <div>
+        <h1><span>AyA</span> – Orbe | Dashboard de Métricas</h1>
+        <p style="font-size:.72rem;color:#64748b;margin-top:2px;">Contrato N° #2024LY-000011-0021400001</p>
+      </div>
     </div>
-    <div class="kpi-card">
-      <div class="label">Cumplimiento Global</div>
-      <div class="value">96.1%</div>
-      <div class="sub">3,961 resueltos de 4,162 casos</div>
+    <div class="header-right">
+      <div class="period"><strong id="periodLabel">–</strong><br><span id="periodSub">Última actualización automática</span></div>
+      <button class="btn-export btn-pdf" onclick="exportPDF()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        PDF
+      </button>
+      <button class="btn-export btn-xls" onclick="exportExcel()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Excel
+      </button>
     </div>
-    <div class="kpi-card">
-      <div class="label">No Cumplió – Marzo</div>
-      <div class="value">47</div>
-      <div class="sub">De 520 casos atendidos en Marzo</div>
-    </div>
-    <div class="kpi-card">
-      <div class="label">Satisfacción – Marzo 2026</div>
-      <div class="value">4.78</div>
-      <div class="sub">Escala 0–5 · 76 respuestas</div>
-    </div>
-  </div>
+  </header>
 
-  <!-- ROW 1: Tendencia mensual + % Cumplimiento mensual -->
-  <div class="chart-row row-2">
+  <main>
+    <!-- KPI CARDS -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="label">Total Casos Atendidos</div>
+        <div class="value" id="kpiTotal">–</div>
+        <div class="sub"  id="kpiTotalSub">–</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Cumplimiento Global</div>
+        <div class="value" id="kpiCumpl">–</div>
+        <div class="sub"  id="kpiCumplSub">–</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">No Cumplió – <span id="kpiUltMesLabel">Último mes</span></div>
+        <div class="value" id="kpiNoCumpl">–</div>
+        <div class="sub"  id="kpiNoCumplSub">–</div>
+      </div>
+      <div class="kpi-card">
+        <div class="label">Satisfacción – <span id="kpiSatisfMesLabel">Último mes</span></div>
+        <div class="value" id="kpiSatisf">–</div>
+        <div class="sub"  id="kpiSatisfSub">–</div>
+      </div>
+    </div>
+
+    <!-- TENDENCIA + % CUMPLIMIENTO -->
+    <div class="chart-row row-2">
+      <div class="card">
+        <h2><span>Tendencia</span> — Casos Atendidos por Mes</h2>
+        <div class="chart-wrap h260"><canvas id="chartTendencia"></canvas></div>
+      </div>
+      <div class="card">
+        <h2><span>Cumplimiento</span> — % Global por Mes</h2>
+        <div class="chart-wrap h260"><canvas id="chartCumplMes"></canvas></div>
+      </div>
+    </div>
+
+    <!-- STACKED POR TÉCNICO/MES -->
+    <div class="chart-row row-full">
+      <div class="card">
+        <h2><span>Casos por Técnico</span> — Evolución Mensual</h2>
+        <div class="chart-wrap h340"><canvas id="chartTecnicoMes"></canvas></div>
+      </div>
+    </div>
+
+    <!-- TOTALES + % POR TÉCNICO -->
+    <div class="chart-row row-2">
+      <div class="card">
+        <h2><span>Total Casos</span> — por Técnico (acumulado)</h2>
+        <div class="chart-wrap h260"><canvas id="chartTotalTec"></canvas></div>
+      </div>
+      <div class="card">
+        <h2><span>Cumplimiento %</span> — por Técnico (acumulado)</h2>
+        <div class="chart-wrap h260"><canvas id="chartCumplTec"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ÚLTIMO MES + SATISFACCIÓN -->
+    <div class="chart-row row-3">
+      <div class="card">
+        <h2><span id="chartUltMesTitulo">Último Mes</span> — Cumplió vs No Cumplió</h2>
+        <div class="chart-wrap h300"><canvas id="chartUltMes"></canvas></div>
+      </div>
+      <div class="card">
+        <h2><span>Satisfacción</span> — Promedio Histórico</h2>
+        <div class="chart-wrap h300"><canvas id="chartSatisf"></canvas></div>
+      </div>
+    </div>
+
+    <!-- TABLA DETALLE ÚLTIMO MES -->
     <div class="card">
-      <h2><span>Tendencia</span> — Casos Atendidos por Mes</h2>
-      <div class="chart-wrap h280"><canvas id="chartTendencia"></canvas></div>
+      <h2><span>Detalle</span> — <span id="tablaUltMesTitulo">Último Mes</span> por Técnico</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Técnico</th>
+              <th>Casos</th>
+              <th>Cumplió</th>
+              <th>No Cumplió</th>
+              <th>% Cumplimiento</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="tablaBody"></tbody>
+        </table>
+      </div>
     </div>
-    <div class="card">
-      <h2><span>Cumplimiento</span> — % Global por Mes</h2>
-      <div class="chart-wrap h280"><canvas id="chartCumplMes"></canvas></div>
-    </div>
-  </div>
+  </main>
 
-  <!-- ROW 2: Casos por técnico por mes (stacked bar) -->
-  <div class="chart-row row-full">
-    <div class="card">
-      <h2><span>Casos por Técnico</span> — Evolución Mensual (Ago 2025 – Mar 2026)</h2>
-      <div class="chart-wrap h360"><canvas id="chartTecnicoMes"></canvas></div>
-    </div>
-  </div>
-
-  <!-- ROW 3: Totales por técnico + Cumplimiento % por técnico -->
-  <div class="chart-row row-2">
-    <div class="card">
-      <h2><span>Total Casos</span> — por Técnico (acumulado)</h2>
-      <div class="chart-wrap h280"><canvas id="chartTotalTec"></canvas></div>
-    </div>
-    <div class="card">
-      <h2><span>Cumplimiento %</span> — por Técnico (acumulado)</h2>
-      <div class="chart-wrap h280"><canvas id="chartCumplTec"></canvas></div>
-    </div>
-  </div>
-
-  <!-- ROW 4: Detalle Marzo 2026 (bar) + Satisfacción histórica -->
-  <div class="chart-row row-3">
-    <div class="card">
-      <h2><span>Marzo 2026</span> — Casos vs Cumplimiento por Técnico</h2>
-      <div class="chart-wrap h320"><canvas id="chartMarzo"></canvas></div>
-    </div>
-    <div class="card">
-      <h2><span>Satisfacción</span> — Promedio Histórico</h2>
-      <div class="chart-wrap h320"><canvas id="chartSatisf"></canvas></div>
-    </div>
-  </div>
-
-  <!-- ROW 5: Tabla detalle Marzo 2026 -->
-  <div class="card">
-    <h2><span>Detalle</span> — Marzo 2026 por Técnico</h2>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Técnico</th>
-            <th>Casos</th>
-            <th>Cumplió</th>
-            <th>No Cumplió</th>
-            <th>% Cumplimiento</th>
-            <th>Estado</th>
-          </tr>
-        </thead>
-        <tbody id="tablaMar"></tbody>
-      </table>
-    </div>
-  </div>
-
-</main>
-
-<footer>
-  Dashboard generado con datos de <strong>Metricas_AyA_Orbe_Consolidado.xlsx</strong> y <strong>Metricas_AyA_Orbe_Marzo2026.pptx</strong> &nbsp;·&nbsp; AyA – Orbe 2026
-</footer>
+  <footer>
+    Datos en tiempo real desde <strong>Google Sheets</strong> &nbsp;·&nbsp; AyA – Orbe 2025/2026
+  </footer>
+</div>
 
 <script>
-/* ═══════════════════════════════════════════════
-   DATA
-═══════════════════════════════════════════════ */
-const meses    = ['Ago','Sep','Oct','Nov','Dic','Ene','Feb','Mar'];
-const mesLabel = ['Ago 25','Sep 25','Oct 25','Nov 25','Dic 25','Ene 26','Feb 26','Mar 26'];
+/* ═══════════════════════════════════════════════════════════
+   CONFIG
+═══════════════════════════════════════════════════════════ */
+const SHEET_ID  = '2PACX-1vQqmoRWfvXrQr3fPLwFQNgfJIJd-QgeCTne6bB5VrH2hIHJC4ZWus5yrb2nHw0CSwvKetH8SWOmP-rr';
+const GID_BASE  = '1580552099';
+const CSV_URL   = `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pub?output=csv&gid=${GID_BASE}`;
 
-// Casos atendidos totales por mes (cumplió + no cumplió)
-const casosMes = [832, 1275, 1096, 1202, 830, 1076, 1068, 520];
-// Cumplió por mes
-const cumplMes = [828, 1240, 1053, 1158, 784, 1036, 1009, 473];
-// No cumplió por mes
-const noCumplMes = [4, 35, 43, 44, 46, 40, 59, 47];
-// % cumplimiento mensual
-const pctMes = casosMes.map((c,i) => +((cumplMes[i]/c)*100).toFixed(1));
-
-// Satisfacción
-const messSatisf  = ['Sep 25','Oct 25','Nov 25','Dic 25','Ene 26','Feb 26','Mar 26'];
-const satisfResp  = [100, 108, 116, 129, 137, 137, 76];
-const satisfProm  = [3.91, 4.15, 3.72, 3.63, 3.74, 3.74, 4.78];
-
-// Por técnico (8 meses: Ago–Mar)
-const tecnicos = ['Dennis','Diego','Evelyn','Jordan','Sebastián','William'];
-const colors   = ['#60a5fa','#34d399','#fbbf24','#a78bfa','#f87171','#22d3ee'];
-const bgAlpha  = (hex, a) => hex + Math.round(a*255).toString(16).padStart(2,'0');
-
-const datosPorTec = {
-  Dennis:    [0,   120, 92,  103, 74,  53,  23,  19 ],
-  Diego:     [92,  127, 122, 114, 61,  83,  85,  85 ],
-  Evelyn:    [0,   0,   0,   0,   53,  78,  86,  90 ],
-  Jordan:    [81,  110, 104, 114, 63,  109, 106, 99 ],
-  Sebastián: [75,  153, 58,  84,  64,  45,  37,  52 ],
-  William:   [126, 135, 157, 184, 103, 178, 190, 175],
+// Satisfacción histórica (agregar nuevos meses aquí cada mes)
+const SATISF = {
+  'Septiembre': { resp: 100, prom: 3.91 },
+  'Octubre':    { resp: 108, prom: 4.15 },
+  'Noviembre':  { resp: 116, prom: 3.72 },
+  'Diciembre':  { resp: 129, prom: 3.63 },
+  'Enero':      { resp: 137, prom: 3.74 },
+  'Febrero':    { resp: 137, prom: 3.74 },
+  'Marzo':      { resp: 76,  prom: 4.78 },
 };
 
-// Acumulados por técnico
-const totales = {
-  Dennis:    484,
-  Diego:     769,
-  Evelyn:    307,
-  Jordan:    786,
-  Sebastián: 568,
-  William:   1248,
-};
-const cumplPct = {
-  Dennis:    94.4,
-  Diego:     95.4,
-  Evelyn:    95.1,
-  Jordan:    98.3,
-  Sebastián: 82.6,
-  William:   98.9,
+const COLORS = ['#60a5fa','#34d399','#fbbf24','#a78bfa','#f87171','#22d3ee','#fb923c','#a3e635'];
+const MONTH_SHORT = {
+  Agosto:'Ago', Septiembre:'Sep', Octubre:'Oct', Noviembre:'Nov',
+  Diciembre:'Dic', Enero:'Ene', Febrero:'Feb', Marzo:'Mar',
+  Abril:'Abr', Mayo:'May', Junio:'Jun', Julio:'Jul'
 };
 
-// Detalle Marzo 2026
-const marzoData = [
-  { tec:'Dennis',    casos:19,  si:14,  no:5,  pct:73.7 },
-  { tec:'Diego',     casos:85,  si:85,  no:0,  pct:100  },
-  { tec:'Evelyn',    casos:90,  si:81,  no:9,  pct:90.0 },
-  { tec:'Jordan',    casos:99,  si:98,  no:1,  pct:99.0 },
-  { tec:'Sebastián', casos:52,  si:24,  no:28, pct:46.2 },
-  { tec:'William',   casos:175, si:171, no:4,  pct:97.7 },
-];
+// Estado global para exportar
+const S = {};
 
-/* ═══════════════════════════════════════════════
-   CHART DEFAULTS
-═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   CSV PARSER
+═══════════════════════════════════════════════════════════ */
+function parseCSVLine(line) {
+  const res = []; let cur = ''; let inQ = false;
+  for (const ch of line) {
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === ',' && !inQ) { res.push(cur); cur = ''; }
+    else { cur += ch; }
+  }
+  res.push(cur);
+  return res;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  return lines.slice(1).map(l => {
+    const c = parseCSVLine(l);
+    return {
+      tecnico:   c[0]?.trim() || '',
+      mes:       c[1]?.trim() || '',
+      casos:     parseInt(c[2]) || 0,
+      cumplió:   parseInt(c[3]) || 0,
+      noCumplió: parseInt(c[4]) || 0,
+    };
+  }).filter(r => r.tecnico && r.mes);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════ */
+function getMonthLabels(months) {
+  let year = 25;
+  return months.map((m, i) => {
+    if (i > 0 && months[i - 1] === 'Diciembre') year++;
+    return `${MONTH_SHORT[m] || m.slice(0, 3)} ${year}`;
+  });
+}
+
+const bgAlpha = (hex, a) => hex + Math.round(a * 255).toString(16).padStart(2, '0');
+
 Chart.defaults.color = '#94a3b8';
 Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.plugins.legend.labels.boxWidth = 10;
 Chart.defaults.plugins.legend.labels.padding  = 10;
 
-const isMobile  = window.innerWidth <= 768;
-const isSmall   = window.innerWidth <= 480;
 const gridColor = 'rgba(255,255,255,.06)';
+const tooltip   = { backgroundColor: '#0f172a', borderColor: '#334155', borderWidth: 1, padding: 12 };
 
-// Reducir fuentes en mobile
-if (isMobile) {
-  Chart.defaults.font.size = 10;
-  Chart.defaults.plugins.legend.labels.font = { size: 10 };
-}
-
-function baseOptions(yLabel='') {
+function baseOpts(extra = {}) {
   return {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-      legend: { position:'top' },
-      tooltip: { backgroundColor:'#0f172a', borderColor:'#334155', borderWidth:1, padding:12 }
-    },
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'top' }, tooltip },
     scales: {
-      x: { grid:{ color: gridColor }, ticks:{ color:'#94a3b8' } },
-      y: { grid:{ color: gridColor }, ticks:{ color:'#94a3b8' }, title:{ display:!!yLabel, text:yLabel, color:'#64748b' } }
-    }
+      x: { grid: { color: gridColor } },
+      y: { grid: { color: gridColor } }
+    },
+    ...extra
   };
 }
 
-/* ── 1. Tendencia mensual ───────────────────── */
-new Chart(document.getElementById('chartTendencia'), {
-  type: 'bar',
-  data: {
-    labels: mesLabel,
-    datasets: [
-      {
-        label: 'Casos atendidos',
-        data: casosMes,
-        backgroundColor: 'rgba(96,165,250,.55)',
-        borderColor: '#60a5fa',
-        borderWidth: 2,
-        borderRadius: 6,
-        order: 2
-      },
-      {
-        type: 'line',
-        label: 'Cumplió',
-        data: cumplMes,
-        borderColor: '#34d399',
-        backgroundColor: 'rgba(52,211,153,.1)',
-        pointBackgroundColor: '#34d399',
-        pointRadius: 4,
-        tension: .35,
-        fill: false,
-        order: 1
-      }
-    ]
-  },
-  options: { ...baseOptions('N° Casos'), plugins: { ...baseOptions().plugins } }
-});
+/* ═══════════════════════════════════════════════════════════
+   MAIN INIT
+═══════════════════════════════════════════════════════════ */
+async function init() {
+  try {
+    const resp = await fetch(CSV_URL);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const text = await resp.text();
+    const rows = parseCSV(text);
+    if (!rows.length) throw new Error('Sin datos en el sheet');
 
-/* ── 2. % Cumplimiento por mes ──────────────── */
-new Chart(document.getElementById('chartCumplMes'), {
-  type: 'line',
-  data: {
-    labels: mesLabel,
-    datasets: [{
-      label: '% Cumplimiento',
-      data: pctMes,
-      borderColor: '#a78bfa',
-      backgroundColor: 'rgba(167,139,250,.12)',
-      pointBackgroundColor: '#a78bfa',
-      pointRadius: 5,
-      pointHoverRadius: 7,
-      tension: .35,
-      fill: true
-    }]
-  },
-  options: {
-    ...baseOptions('%'),
-    plugins: {
-      ...baseOptions().plugins,
-      annotation: {}
+    // ── Meses y técnicos únicos ──────────────────────
+    S.months   = [...new Set(rows.map(r => r.mes))];
+    S.mLabels  = getMonthLabels(S.months);
+    S.tecnicos = [...new Set(rows.map(r => r.tecnico))];
+    S.rows     = rows;
+
+    // ── Totales mensuales ────────────────────────────
+    S.monthly = S.months.map(m => {
+      const mr = rows.filter(r => r.mes === m);
+      const cumplió   = mr.reduce((s, r) => s + r.cumplió, 0);
+      const noCumplió = mr.reduce((s, r) => s + r.noCumplió, 0);
+      return { mes: m, cumplió, noCumplió, total: cumplió + noCumplió };
+    });
+
+    // ── Totales por técnico ──────────────────────────
+    S.tecTotals = S.tecnicos.map(t => {
+      const tr = rows.filter(r => r.tecnico === t);
+      const cumplió   = tr.reduce((s, r) => s + r.cumplió, 0);
+      const noCumplió = tr.reduce((s, r) => s + r.noCumplió, 0);
+      const total = cumplió + noCumplió;
+      return { tec: t, cumplió, noCumplió, total, pct: total ? cumplió / total * 100 : 0 };
+    }).sort((a, b) => b.total - a.total);
+
+    // ── KPIs globales ────────────────────────────────
+    const gCumplió   = rows.reduce((s, r) => s + r.cumplió, 0);
+    const gNoCumplió = rows.reduce((s, r) => s + r.noCumplió, 0);
+    const gTotal     = gCumplió + gNoCumplió;
+    const gPct       = gTotal ? (gCumplió / gTotal * 100).toFixed(1) : 0;
+
+    const ultMes    = S.months[S.months.length - 1];
+    const ultLabel  = S.mLabels[S.mLabels.length - 1];
+    const ultRows   = rows.filter(r => r.mes === ultMes);
+    const ultNoCmpl = ultRows.reduce((s, r) => s + r.noCumplió, 0);
+    const ultTotal  = ultRows.reduce((s, r) => s + r.cumplió + r.noCumplió, 0);
+    const satisfUlt = SATISF[ultMes];
+
+    // ── Actualizar DOM KPIs ──────────────────────────
+    document.getElementById('periodLabel').textContent     = `${S.mLabels[0]} – ${ultLabel}`;
+    document.getElementById('kpiTotal').textContent        = gTotal.toLocaleString('es');
+    document.getElementById('kpiTotalSub').textContent     = `${S.mLabels[0]} – ${ultLabel} · ${S.tecnicos.length} técnicos`;
+    document.getElementById('kpiCumpl').textContent        = gPct + '%';
+    document.getElementById('kpiCumplSub').textContent     = `${gCumplió.toLocaleString('es')} resueltos de ${gTotal.toLocaleString('es')}`;
+    document.getElementById('kpiNoCumpl').textContent      = ultNoCmpl;
+    document.getElementById('kpiNoCumplSub').textContent   = `De ${ultTotal.toLocaleString('es')} casos en ${ultMes}`;
+    document.getElementById('kpiUltMesLabel').textContent  = ultMes;
+    document.getElementById('kpiSatisf').textContent       = satisfUlt ? satisfUlt.prom.toFixed(2) : 'N/D';
+    document.getElementById('kpiSatisfSub').textContent    = satisfUlt ? `Escala 0–5 · ${satisfUlt.resp} respuestas` : 'Sin datos';
+    document.getElementById('kpiSatisfMesLabel').textContent = ultMes;
+    document.getElementById('chartUltMesTitulo').textContent = ultMes + ' ' + ultLabel.split(' ')[1];
+    document.getElementById('tablaUltMesTitulo').textContent = `${ultMes} ${ultLabel.split(' ')[1]}`;
+
+    // ── Renderizar gráficos ──────────────────────────
+    renderTendencia();
+    renderCumplMes();
+    renderTecnicoMes();
+    renderTotalTec();
+    renderCumplTec();
+    renderUltMes(ultMes, ultRows);
+    renderSatisf();
+    renderTabla(ultRows);
+
+    // ── Mostrar dashboard ────────────────────────────
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('app').style.display = '';
+
+  } catch (err) {
+    document.getElementById('loading').innerHTML =
+      `<div class="spinner" style="border-top-color:#f87171"></div>
+       <p class="err">Error cargando datos:<br><strong>${err.message}</strong><br><br>
+       Verifica que el Google Sheet esté publicado en la web.</p>`;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RENDER CHARTS
+═══════════════════════════════════════════════════════════ */
+function renderTendencia() {
+  new Chart(document.getElementById('chartTendencia'), {
+    type: 'bar',
+    data: {
+      labels: S.mLabels,
+      datasets: [
+        { label: 'Casos atendidos', data: S.monthly.map(m => m.total), backgroundColor: 'rgba(96,165,250,.5)', borderColor: '#60a5fa', borderWidth: 2, borderRadius: 5, order: 2 },
+        { type: 'line', label: 'Cumplió', data: S.monthly.map(m => m.cumplió), borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,.08)', pointBackgroundColor: '#34d399', pointRadius: 4, tension: .35, fill: false, order: 1 }
+      ]
     },
-    scales: {
-      x: { grid:{ color: gridColor } },
-      y: {
-        grid:{ color: gridColor },
-        min: 88, max: 101,
-        ticks:{ callback: v => v + '%' }
+    options: baseOpts()
+  });
+}
+
+function renderCumplMes() {
+  const pcts = S.monthly.map(m => +(m.cumplió / m.total * 100).toFixed(1));
+  const minPct = Math.max(80, Math.floor(Math.min(...pcts) - 3));
+  new Chart(document.getElementById('chartCumplMes'), {
+    type: 'line',
+    data: {
+      labels: S.mLabels,
+      datasets: [{ label: '% Cumplimiento', data: pcts, borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,.12)', pointBackgroundColor: '#a78bfa', pointRadius: 5, pointHoverRadius: 7, tension: .35, fill: true }]
+    },
+    options: {
+      ...baseOpts(),
+      scales: {
+        x: { grid: { color: gridColor } },
+        y: { grid: { color: gridColor }, min: minPct, max: 101, ticks: { callback: v => v + '%' } }
       }
     }
-  }
-});
+  });
+}
 
-/* ── 3. Stacked bar por técnico/mes ─────────── */
-new Chart(document.getElementById('chartTecnicoMes'), {
-  type: 'bar',
-  data: {
-    labels: mesLabel,
-    datasets: tecnicos.map((t, i) => ({
-      label: t,
-      data: datosPorTec[t],
-      backgroundColor: bgAlpha(colors[i], .7),
-      borderColor: colors[i],
-      borderWidth: 1,
-      borderRadius: 3,
-    }))
-  },
-  options: {
-    ...baseOptions('Casos'),
-    plugins: { ...baseOptions().plugins, legend:{ position:'top' } },
-    scales: {
-      x: { stacked: true, grid:{ color: gridColor } },
-      y: { stacked: true, grid:{ color: gridColor } }
-    }
-  }
-});
-
-/* ── 4. Total por técnico ───────────────────── */
-new Chart(document.getElementById('chartTotalTec'), {
-  type: 'bar',
-  data: {
-    labels: tecnicos,
-    datasets: [{
-      label: 'Total casos',
-      data: tecnicos.map(t => totales[t]),
-      backgroundColor: colors.map(c => bgAlpha(c, .65)),
-      borderColor: colors,
-      borderWidth: 2,
-      borderRadius: 8,
-    }]
-  },
-  options: {
-    ...baseOptions('Casos'),
-    indexAxis: 'y',
-    plugins: { legend:{ display:false }, tooltip:{ ...baseOptions().plugins.tooltip } }
-  }
-});
-
-/* ── 5. Cumplimiento % por técnico ──────────── */
-new Chart(document.getElementById('chartCumplTec'), {
-  type: 'bar',
-  data: {
-    labels: tecnicos,
-    datasets: [{
-      label: '% Cumplimiento',
-      data: tecnicos.map(t => cumplPct[t]),
-      backgroundColor: tecnicos.map(t => {
-        const v = cumplPct[t];
-        return v >= 97 ? 'rgba(52,211,153,.7)'
-             : v >= 90 ? 'rgba(251,191,36,.7)'
-             : 'rgba(248,113,113,.7)';
-      }),
-      borderColor: tecnicos.map(t => {
-        const v = cumplPct[t];
-        return v >= 97 ? '#34d399' : v >= 90 ? '#fbbf24' : '#f87171';
-      }),
-      borderWidth: 2,
-      borderRadius: 8,
-    }]
-  },
-  options: {
-    ...baseOptions('%'),
-    indexAxis: 'y',
-    plugins: { legend:{ display:false }, tooltip:{ ...baseOptions().plugins.tooltip } },
-    scales: {
-      x: { grid:{ color: gridColor }, min: 70, max: 101, ticks:{ callback: v => v + '%' } },
-      y: { grid:{ color: gridColor } }
-    }
-  }
-});
-
-/* ── 6. Detalle Marzo ───────────────────────── */
-new Chart(document.getElementById('chartMarzo'), {
-  type: 'bar',
-  data: {
-    labels: marzoData.map(d => d.tec),
-    datasets: [
-      {
-        label: 'Cumplió',
-        data: marzoData.map(d => d.si),
-        backgroundColor: 'rgba(52,211,153,.65)',
-        borderColor: '#34d399',
-        borderWidth: 2,
-        borderRadius: 5,
-        stack: 's'
-      },
-      {
-        label: 'No Cumplió',
-        data: marzoData.map(d => d.no),
-        backgroundColor: 'rgba(248,113,113,.65)',
-        borderColor: '#f87171',
-        borderWidth: 2,
-        borderRadius: 5,
-        stack: 's'
+function renderTecnicoMes() {
+  new Chart(document.getElementById('chartTecnicoMes'), {
+    type: 'bar',
+    data: {
+      labels: S.mLabels,
+      datasets: S.tecnicos.map((t, i) => ({
+        label: t,
+        data: S.months.map(m => {
+          const r = S.rows.find(x => x.tecnico === t && x.mes === m);
+          return r ? r.cumplió + r.noCumplió : 0;
+        }),
+        backgroundColor: bgAlpha(COLORS[i % COLORS.length], .7),
+        borderColor: COLORS[i % COLORS.length],
+        borderWidth: 1, borderRadius: 3,
+      }))
+    },
+    options: {
+      ...baseOpts(),
+      scales: {
+        x: { stacked: true, grid: { color: gridColor } },
+        y: { stacked: true, grid: { color: gridColor } }
       }
-    ]
-  },
-  options: {
-    ...baseOptions('Casos'),
-    plugins: { ...baseOptions().plugins },
-    scales: {
-      x: { stacked: true, grid:{ color: gridColor } },
-      y: { stacked: true, grid:{ color: gridColor } }
     }
-  }
-});
+  });
+}
 
-/* ── 7. Satisfacción ────────────────────────── */
-new Chart(document.getElementById('chartSatisf'), {
-  type: 'line',
-  data: {
-    labels: messSatisf,
-    datasets: [
-      {
-        label: 'Promedio (0–5)',
-        data: satisfProm,
-        borderColor: '#fbbf24',
-        backgroundColor: 'rgba(251,191,36,.12)',
-        pointBackgroundColor: '#fbbf24',
-        pointRadius: 5,
-        tension: .35,
-        fill: true,
-        yAxisID: 'y'
-      },
-      {
-        type: 'bar',
-        label: 'Respuestas',
-        data: satisfResp,
-        backgroundColor: 'rgba(96,165,250,.25)',
-        borderColor: 'rgba(96,165,250,.5)',
-        borderWidth: 1,
-        borderRadius: 4,
-        yAxisID: 'y2'
+function renderTotalTec() {
+  new Chart(document.getElementById('chartTotalTec'), {
+    type: 'bar',
+    data: {
+      labels: S.tecTotals.map(t => t.tec),
+      datasets: [{ label: 'Total casos', data: S.tecTotals.map(t => t.total), backgroundColor: S.tecTotals.map((_, i) => bgAlpha(COLORS[i % COLORS.length], .65)), borderColor: S.tecTotals.map((_, i) => COLORS[i % COLORS.length]), borderWidth: 2, borderRadius: 8 }]
+    },
+    options: { ...baseOpts(), indexAxis: 'y', plugins: { legend: { display: false }, tooltip } }
+  });
+}
+
+function renderCumplTec() {
+  new Chart(document.getElementById('chartCumplTec'), {
+    type: 'bar',
+    data: {
+      labels: S.tecTotals.map(t => t.tec),
+      datasets: [{
+        label: '% Cumplimiento',
+        data: S.tecTotals.map(t => +t.pct.toFixed(1)),
+        backgroundColor: S.tecTotals.map(t => t.pct >= 97 ? 'rgba(52,211,153,.7)' : t.pct >= 90 ? 'rgba(251,191,36,.7)' : 'rgba(248,113,113,.7)'),
+        borderColor:     S.tecTotals.map(t => t.pct >= 97 ? '#34d399' : t.pct >= 90 ? '#fbbf24' : '#f87171'),
+        borderWidth: 2, borderRadius: 8
+      }]
+    },
+    options: {
+      ...baseOpts(), indexAxis: 'y',
+      plugins: { legend: { display: false }, tooltip },
+      scales: {
+        x: { grid: { color: gridColor }, min: Math.max(50, Math.floor(Math.min(...S.tecTotals.map(t => t.pct)) - 5)), max: 101, ticks: { callback: v => v + '%' } },
+        y: { grid: { color: gridColor } }
       }
-    ]
-  },
-  options: {
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: { ...baseOptions().plugins },
-    scales: {
-      x: { grid:{ color: gridColor } },
-      y:  { grid:{ color: gridColor }, min: 3, max: 5.2, position:'left', ticks:{ callback: v => v.toFixed(1) } },
-      y2: { grid:{ display:false }, position:'right', ticks:{ color:'#475569' } }
     }
-  }
-});
+  });
+}
 
-/* ═══════════════════════════════════════════════
-   TABLA MARZO
-═══════════════════════════════════════════════ */
-const tbody = document.getElementById('tablaMar');
-marzoData.forEach((d, i) => {
-  const pct  = d.pct;
-  const badge = pct >= 95 ? 'badge-green' : pct >= 80 ? 'badge-yellow' : 'badge-red';
-  const label = pct >= 95 ? 'Óptimo'      : pct >= 80 ? 'Regular'      : 'Crítico';
-  const fillColor = pct >= 95 ? '#34d399' : pct >= 80 ? '#fbbf24' : '#f87171';
-  tbody.innerHTML += `
-    <tr>
-      <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${colors[i]};margin-right:8px;"></span>${d.tec}</td>
-      <td><strong>${d.casos}</strong></td>
-      <td style="color:#34d399">${d.si}</td>
-      <td style="color:#f87171">${d.no}</td>
-      <td>
-        <div class="prog-wrap">
-          <div class="prog-bar"><div class="fill" style="width:${pct}%;background:${fillColor}"></div></div>
-          <span style="font-size:.82rem;color:#e2e8f0;min-width:42px">${pct}%</span>
-        </div>
-      </td>
-      <td><span class="badge ${badge}">${label}</span></td>
-    </tr>`;
-});
+function renderUltMes(ultMes, ultRows) {
+  new Chart(document.getElementById('chartUltMes'), {
+    type: 'bar',
+    data: {
+      labels: ultRows.map(r => r.tecnico),
+      datasets: [
+        { label: 'Cumplió',     data: ultRows.map(r => r.cumplió),   backgroundColor: 'rgba(52,211,153,.65)',  borderColor: '#34d399', borderWidth: 2, borderRadius: 5, stack: 's' },
+        { label: 'No Cumplió',  data: ultRows.map(r => r.noCumplió), backgroundColor: 'rgba(248,113,113,.65)', borderColor: '#f87171', borderWidth: 2, borderRadius: 5, stack: 's' }
+      ]
+    },
+    options: {
+      ...baseOpts(),
+      scales: {
+        x: { stacked: true, grid: { color: gridColor } },
+        y: { stacked: true, grid: { color: gridColor } }
+      }
+    }
+  });
+}
+
+function renderSatisf() {
+  const meses = S.months.filter(m => SATISF[m]);
+  if (!meses.length) return;
+  const labels = getMonthLabels(meses);
+  new Chart(document.getElementById('chartSatisf'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Promedio (0–5)', data: meses.map(m => SATISF[m].prom), borderColor: '#fbbf24', backgroundColor: 'rgba(251,191,36,.12)', pointBackgroundColor: '#fbbf24', pointRadius: 5, tension: .35, fill: true, yAxisID: 'y' },
+        { type: 'bar', label: 'Respuestas', data: meses.map(m => SATISF[m].resp), backgroundColor: 'rgba(96,165,250,.2)', borderColor: 'rgba(96,165,250,.4)', borderWidth: 1, borderRadius: 4, yAxisID: 'y2' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' }, tooltip },
+      scales: {
+        x:  { grid: { color: gridColor } },
+        y:  { grid: { color: gridColor }, min: 3, max: 5.2, position: 'left',  ticks: { callback: v => v.toFixed(1) } },
+        y2: { grid: { display: false },             position: 'right', ticks: { color: '#475569' } }
+      }
+    }
+  });
+}
+
+function renderTabla(ultRows) {
+  const tbody = document.getElementById('tablaBody');
+  ultRows.forEach((r, i) => {
+    const total = r.cumplió + r.noCumplió;
+    const pct   = total ? +(r.cumplió / total * 100).toFixed(1) : 0;
+    const badge = pct >= 95 ? 'badge-green' : pct >= 80 ? 'badge-yellow' : 'badge-red';
+    const label = pct >= 95 ? 'Óptimo'     : pct >= 80 ? 'Regular'      : 'Crítico';
+    const fill  = pct >= 95 ? '#34d399'    : pct >= 80 ? '#fbbf24'      : '#f87171';
+    tbody.innerHTML += `
+      <tr>
+        <td><span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${COLORS[i % COLORS.length]};margin-right:8px"></span>${r.tecnico}</td>
+        <td><strong>${total}</strong></td>
+        <td style="color:#34d399">${r.cumplió}</td>
+        <td style="color:#f87171">${r.noCumplió}</td>
+        <td>
+          <div class="prog-wrap">
+            <div class="prog-bar"><div class="fill" style="width:${pct}%;background:${fill}"></div></div>
+            <span style="font-size:.8rem;min-width:40px">${pct}%</span>
+          </div>
+        </td>
+        <td><span class="badge ${badge}">${label}</span></td>
+      </tr>`;
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════
+   EXPORT FUNCIONS
+═══════════════════════════════════════════════════════════ */
+function exportPDF() { window.print(); }
+
+function exportExcel() {
+  if (!S.rows) return;
+  const wb = XLSX.utils.book_new();
+
+  // Hoja 1 – Base de datos completa
+  const wsBase = [
+    ['Técnico', 'Mes', 'Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
+    ...S.rows.map(r => {
+      const t = r.cumplió + r.noCumplió;
+      return [r.tecnico, r.mes, t, r.cumplió, r.noCumplió, t ? (r.cumplió / t * 100).toFixed(1) + '%' : '0%'];
+    })
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsBase), 'Base_Datos');
+
+  // Hoja 2 – Resumen mensual
+  const wsMes = [
+    ['Mes', 'Total Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
+    ...S.monthly.map((m, i) => [
+      S.mLabels[i], m.total, m.cumplió, m.noCumplió,
+      m.total ? (m.cumplió / m.total * 100).toFixed(1) + '%' : '0%'
+    ])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsMes), 'Resumen_Mensual');
+
+  // Hoja 3 – Resumen por técnico
+  const wsTec = [
+    ['Técnico', 'Total Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
+    ...S.tecTotals.map(t => [t.tec, t.total, t.cumplió, t.noCumplió, t.pct.toFixed(1) + '%'])
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsTec), 'Resumen_Técnicos');
+
+  // Hoja 4 – Último mes detalle
+  const ultMes = S.months[S.months.length - 1];
+  const ultRows = S.rows.filter(r => r.mes === ultMes);
+  const wsUlt = [
+    [`Detalle – ${ultMes}`],
+    ['Técnico', 'Casos', 'Cumplió', 'No Cumplió', '% Cumplimiento'],
+    ...ultRows.map(r => {
+      const t = r.cumplió + r.noCumplió;
+      return [r.tecnico, t, r.cumplió, r.noCumplió, t ? (r.cumplió / t * 100).toFixed(1) + '%' : '0%'];
+    })
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(wsUlt), `Detalle_${ultMes}`);
+
+  XLSX.writeFile(wb, `Metricas_AyA_Orbe_${ultMes}.xlsx`);
+}
+
+/* ── START ── */
+init();
 </script>
 </body>
 </html>
